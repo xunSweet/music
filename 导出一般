@@ -1,0 +1,160 @@
+1.@controller   downLoadUI(下载页面)
+/**
+	 * 导出
+	 * 
+	 * @throws UnsupportedEncodingException
+	 */
+	public String exportResult() throws UnsupportedEncodingException {
+		String downLoadPath = USEREXCELTEMPLATE_DOWNLOADPATH;
+		String fileName = "resutTemp";
+		ServletActionContext.getRequest().setAttribute("downLoadPath", downLoadPath);
+		ServletActionContext.getRequest().setAttribute("fileName", fileName + ".xls");
+		return "downLoadUI";
+	}
+
+//将数据流转换为文件
+private void inStreamToFile(InputStream inputStream, File file) {
+		try {
+			OutputStream os = new FileOutputStream(file);
+			byte[] buffer = new byte[1024];
+			int byteRead = 0;
+			while ((byteRead = inputStream.read(buffer)) > 0)
+				os.write(buffer, 0, byteRead);
+			os.close();
+			inputStream.close();
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+  
+ //创建一个Excel对象
+  	public void createExcel(JSONArray results) {
+		WritableWorkbook wwb;
+		Label label1, label2, label3;
+		try {
+			String path = USEREXCELTEMPLATE_DOWNLOADPATH;
+			File file = new File(getServletContext().getRealPath(path + USERRESUTTEMP_FILE));
+			if (file.exists()) {
+				file.delete();
+			}
+			wwb = Workbook.createWorkbook(file);
+			WritableSheet sheet = wwb.createSheet("第一页", 0);
+			sheet.setColumnView(0, 10);
+			sheet.setColumnView(1, 40);
+			sheet.setColumnView(2, 40);
+			label1 = new Label(0, 0, "姓名");
+			sheet.addCell(label1);
+			label2 = new Label(1, 0, "组织机构");
+			sheet.addCell(label2);
+			label3 = new Label(2, 0, "信息");
+			sheet.addCell(label3);
+			for (int i = 0; i < results.size(); i++) {
+				JSONObject object = results.getJSONObject(i);
+				label1 = new Label(0, i + 1, object.getString("name"));
+				sheet.addCell(label1);
+				label2 = new Label(1, i + 1, object.getString("org"));
+				sheet.addCell(label2);
+				label3 = new Label(2, i + 1, object.getString("msg"));
+				sheet.addCell(label3);
+			}
+			// 写入数据并关闭文件
+			wwb.write();
+			wwb.close();
+		} catch (Exception e) {
+			log.error("生成报告结果出错！", e);
+			e.printStackTrace();
+		}finally {
+			managerOperaterLogService.save("cems_edsm_importExcel",new String[]{"createExcel"+MessageUtils.getMessage(msg)});
+		}
+	}
+  
+  
+ //放置数据在Excel对象（SXSSFWorkbook）
+  public SXSSFWorkbook putExcelData(List<UserObject> userAll, String title, String[] headers) {
+		log.info("组装将要导出的excel信息开始...");
+		SXSSFWorkbook wb = null;
+		if (userAll != null && userAll.size() > 0) {
+			ExportExcel excel = new ExportExcel(title, headers);
+			for (int i = 0; i < userAll.size(); i++) {
+				Row row = excel.addRow();
+				UserObject userAllExcel = userAll.get(i);
+				excel.addCell(row, 0, userAllExcel.getName());// 姓名
+				excel.addCell(row, 1, userAllExcel.getAccount());// 账号
+				String sexString = userAllExcel.getSex();
+				if ("M".equals(sexString)) {// 性别
+					excel.addCell(row, 2, "男");
+				} else if ("W".equals(sexString)) {
+					excel.addCell(row, 2, "女");
+				} else {
+					excel.addCell(row, 2, "保密");
+				}
+				excel.addCell(row, 3, userAllExcel.getOrgName());// 所属机构
+
+				if ("0".equals(userAllExcel.getRegisteType())) {
+					excel.addCell(row, 4, "自助注册");// 用户类型
+
+				}
+				if ("1".equals(userAllExcel.getRegisteType())) {
+					excel.addCell(row, 4, "管理员添加");// 用户类型
+
+				}
+				if ("3".equals(userAllExcel.getRegisteType())) {
+					excel.addCell(row, 4, "第三方数据源");// 用户类型
+
+				}
+				//excel.addCell(row, 5, userAllExcel.getSecretName());// 用户密级
+
+				if (userAllExcel.getQuitFlag() == 0) {
+					excel.addCell(row, 5, "正常");
+					excel.addCell(row, 6, "");
+				}
+				if (userAllExcel.getQuitFlag() == 1) {
+					excel.addCell(row, 5, "准备离职");
+					excel.addCell(row, 6, userAllExcel.getQuitDate());
+				}
+				if (userAllExcel.getQuitFlag() == 2) {
+					excel.addCell(row, 5, "已经离职");
+					excel.addCell(row, 6, userAllExcel.getQuitDate());
+				}
+				excel.addCell(row, 7, userAllExcel.getJobName());
+				excel.addCell(row, 8, userAllExcel.getPhone());
+			}
+			wb = excel.getWb();
+		}
+		return wb;
+	}
+  
+  
+  // excel导出
+	public void exportExcel() throws Exception {
+		HttpServletResponse response = getResponse();
+		int userAllCount = iUserAllService.queryUserAllCount();//获取所有的用户条数
+		int page = 1;//定义第一页
+		while(userAllCount >= 0){//判断查出来的用户个数是否大于
+			// 获取数据
+			List<UserObject> newUserAll = iUserAllService.queryUserAllPage(page, 1000);
+			// 表头数组
+			String[] headers = new String[] { "姓名", "账号", "性别", "所属机构", "注册类型",  "离职标识", "离职日期", "用户职务", "手机" };
+	
+			SXSSFWorkbook workbook = this.putExcelData(newUserAll, "用户信息", headers);
+			// 输出流
+			OutputStream out = response.getOutputStream();
+			// 设置输出类型编码
+			String fileName = "用户信息.xlsx";
+			// 设置输出类型和编码
+			response.setContentType("application/msexcel;charset=UTF-8");
+			// 对文件名（针对中文名）进行编码，解决下载的文件名乱码问题
+			response.setHeader("Content-Disposition",
+					"attachment;filename=" + new String(fileName.getBytes("GBK"), "ISO8859-1"));
+			response.setHeader("Connection", "close");
+			response.setHeader("Content-Type", "application/vnd.ms-excel");
+			if (workbook != null) {
+				workbook.write(out);
+				workbook.dispose();
+			}
+			page = page  + 1;//页码
+			userAllCount = userAllCount - 1000;//总条数减1000
+		}
+	}
